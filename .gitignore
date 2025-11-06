@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+.env
+.env.*
+
+# Streamlit
+.streamlit/secrets.toml
+.streamlit/*.json
+
+# MacOS
+.DS_Store
+
+# Reports/outputs
+reports/
+exports/
+
+
