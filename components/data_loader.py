@@ -5,10 +5,18 @@ from typing import Tuple, Optional
 import io
 import requests
 
-import gspread
 import pandas as pd
 import streamlit as st
-from google.oauth2.service_account import Credentials
+
+# Optional imports for Google Sheets API (only needed if using service account)
+try:
+    import gspread
+    from google.oauth2.service_account import Credentials
+    GSPREAD_AVAILABLE = True
+except ImportError:
+    GSPREAD_AVAILABLE = False
+    gspread = None  # type: ignore
+    Credentials = None  # type: ignore
 
 
 SCOPES = [
@@ -26,7 +34,9 @@ def _demo_df() -> pd.DataFrame:
     ])
 
 
-def _get_client() -> gspread.client.Client:
+def _get_client():
+    if not GSPREAD_AVAILABLE:
+        raise RuntimeError("gspread is not installed. Install it with: pip install gspread google-auth")
     info = None
     try:
         info = st.secrets["gcp_service_account"]  # type: ignore[index]
@@ -35,69 +45,72 @@ def _get_client() -> gspread.client.Client:
     if not info:
         raise RuntimeError("Missing gcp_service_account in secrets")
     creds = Credentials.from_service_account_info(info, scopes=SCOPES)
-    return gspread.authorize(creds)
+    return gspread.authorize(creds)  # type: ignore
 
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_sheet(spreadsheet_key: str, gid: Optional[int] = None) -> Tuple[pd.DataFrame, float]:
-    # Try service account first
-    try:
-        client = _get_client()
-        sh = client.open_by_key(spreadsheet_key)
-        ws = None
-        if gid is not None:
-            try:
-                ws = sh.get_worksheet_by_id(gid)
-            except Exception:
-                ws = None
-        if ws is None:
-            ws = sh.get_worksheet(0)
-        if ws is None:
-            return pd.DataFrame(), time.time()
-        records = ws.get_all_records()
-        df = pd.DataFrame(records)
-        return df, time.time()
-    except Exception:
-        # Fallback: public CSV export. Allow overriding gid via secrets.
+    # Try service account first (only if gspread is available)
+    if GSPREAD_AVAILABLE:
         try:
-            gid_val = 0 if gid is None else gid
-            if gid is None:
+            client = _get_client()
+            sh = client.open_by_key(spreadsheet_key)
+            ws = None
+            if gid is not None:
                 try:
-                    gid_val = int(st.secrets.get("sheets", {}).get("gid", 0))  # type: ignore[arg-type]
+                    ws = sh.get_worksheet_by_id(gid)
                 except Exception:
-                    gid_val = 0
-            # Attempt export endpoint
-            export_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_key}/export?format=csv&gid={gid_val}"
-            resp = requests.get(export_url, timeout=20)
-            if resp.status_code == 200 and resp.text.strip():
-                df = pd.read_csv(io.StringIO(resp.text))
-                return df, time.time()
-            # Attempt published endpoint (requires File → Share → Publish to web)
-            pub_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_key}/pub?output=csv&gid={gid_val}"
-            resp2 = requests.get(pub_url, timeout=20)
-            resp2.raise_for_status()
-            df = pd.read_csv(io.StringIO(resp2.text))
+                    ws = None
+            if ws is None:
+                ws = sh.get_worksheet(0)
+            if ws is None:
+                return pd.DataFrame(), time.time()
+            records = ws.get_all_records()
+            df = pd.DataFrame(records)
             return df, time.time()
-        except Exception as e:
-            # Provide clearer guidance for common 400/403 cases
-            if isinstance(e, requests.HTTPError) and e.response is not None:
-                code = e.response.status_code
-                detail = f"HTTP {code}"
-                hint = ""
-                if code in (400, 401, 403):
-                    hint = (
-                        " Sheet is not publicly accessible. Options: "
-                        "(1) Share with your service account and add credentials to secrets; "
-                        "(2) Publish the sheet to the web (File → Share → Publish to web) and retry."
-                    )
-                # Fall back to demo so the app remains usable
-                import streamlit as st  # local import to avoid circular in cache
-                st.info(f"CSV export failed: {detail}.{hint} Using demo data for now.")
-                return _demo_df(), time.time()
-            # Non-HTTP error: fall back to demo as well
-            import streamlit as st  # local import
-            st.info("Unable to fetch Google Sheet. Using demo data for now.")
+        except Exception:
+            pass  # Fall through to public CSV method
+    
+    # Fallback: public CSV export. Allow overriding gid via secrets.
+    try:
+        gid_val = 0 if gid is None else gid
+        if gid is None:
+            try:
+                gid_val = int(st.secrets.get("sheets", {}).get("gid", 0))  # type: ignore[arg-type]
+            except Exception:
+                gid_val = 0
+        # Attempt export endpoint
+        export_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_key}/export?format=csv&gid={gid_val}"
+        resp = requests.get(export_url, timeout=20)
+        if resp.status_code == 200 and resp.text.strip():
+            df = pd.read_csv(io.StringIO(resp.text))
+            return df, time.time()
+        # Attempt published endpoint (requires File → Share → Publish to web)
+        pub_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_key}/pub?output=csv&gid={gid_val}"
+        resp2 = requests.get(pub_url, timeout=20)
+        resp2.raise_for_status()
+        df = pd.read_csv(io.StringIO(resp2.text))
+        return df, time.time()
+    except Exception as e:
+        # Provide clearer guidance for common 400/403 cases
+        if isinstance(e, requests.HTTPError) and e.response is not None:
+            code = e.response.status_code
+            detail = f"HTTP {code}"
+            hint = ""
+            if code in (400, 401, 403):
+                hint = (
+                    " Sheet is not publicly accessible. Options: "
+                    "(1) Share with your service account and add credentials to secrets; "
+                    "(2) Publish the sheet to the web (File → Share → Publish to web) and retry."
+                )
+            # Fall back to demo so the app remains usable
+            import streamlit as st  # local import to avoid circular in cache
+            st.info(f"CSV export failed: {detail}.{hint} Using demo data for now.")
             return _demo_df(), time.time()
+        # Non-HTTP error: fall back to demo as well
+        import streamlit as st  # local import
+        st.info("Unable to fetch Google Sheet. Using demo data for now.")
+        return _demo_df(), time.time()
 
 
 def _load_published_xlsx(published_url: str) -> Tuple[pd.DataFrame, float]:
