@@ -5,7 +5,14 @@ from io import BytesIO
 from typing import Tuple
 
 import pandas as pd
-import plotly.express as px
+
+# Plotly import - required for report generation
+try:
+    import plotly.express as px
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+    px = None  # type: ignore
 
 
 def _fig_to_base64_png(fig) -> str:

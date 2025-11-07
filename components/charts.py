@@ -4,12 +4,30 @@ import io
 from typing import Optional
 
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
+
+# Plotly imports - required for charts
+try:
+    import plotly.express as px
+    import plotly.graph_objects as go
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+    px = None  # type: ignore
+    go = None  # type: ignore
+
+
+def _check_plotly() -> bool:
+    """Check if plotly is available, show error if not."""
+    if not PLOTLY_AVAILABLE:
+        st.error("⚠️ Plotly is not installed. Charts are unavailable. Please ensure 'plotly' is in requirements.txt.")
+        return False
+    return True
 
 
 def _download_button_for_figure(fig: go.Figure, filename: str, label: str = "Download PNG") -> None:
+    if not PLOTLY_AVAILABLE:
+        return
     try:
         png = fig.to_image(format="png", scale=2)
         st.download_button(label, data=png, file_name=filename, mime="image/png")
@@ -18,6 +36,8 @@ def _download_button_for_figure(fig: go.Figure, filename: str, label: str = "Dow
 
 
 def chart_projects_by_status(df: pd.DataFrame) -> None:
+    if not _check_plotly():
+        return
     col = "Status" if "Status" in df.columns else ("status" if "status" in df.columns else None)
     if not col:
         st.info("No status column found.")
@@ -30,6 +50,8 @@ def chart_projects_by_status(df: pd.DataFrame) -> None:
 
 
 def chart_projects_by_keywords(df: pd.DataFrame) -> None:
+    if not _check_plotly():
+        return
     # Extract clients from Summary column first, then other columns
     client_counts: dict[str, int] = {}
     
@@ -67,6 +89,8 @@ def chart_projects_by_keywords(df: pd.DataFrame) -> None:
 
 
 def chart_created_vs_due_date(df: pd.DataFrame) -> None:
+    if not _check_plotly():
+        return
     # Find created and due date columns
     created_col = None
     due_col = None
@@ -122,6 +146,8 @@ def chart_created_vs_due_date(df: pd.DataFrame) -> None:
 
 
 def chart_by_resource(df: pd.DataFrame) -> None:
+    if not _check_plotly():
+        return
     # Use Assignee column specifically
     resource_col = None
     for c in df.columns:
@@ -169,6 +195,8 @@ def chart_by_resource(df: pd.DataFrame) -> None:
 
 
 def chart_status_over_time(df: pd.DataFrame) -> None:
+    if not _check_plotly():
+        return
     """Status distribution over time"""
     date_col = None
     status_col = None
@@ -200,6 +228,8 @@ def chart_status_over_time(df: pd.DataFrame) -> None:
 
 
 def chart_priority_breakdown(df: pd.DataFrame) -> None:
+    if not _check_plotly():
+        return
     """Priority/severity breakdown if available"""
     priority_col = None
     for c in df.columns:
@@ -220,6 +250,8 @@ def chart_priority_breakdown(df: pd.DataFrame) -> None:
 
 
 def chart_progress_funnel(df: pd.DataFrame) -> None:
+    if not _check_plotly():
+        return
     """Funnel chart showing ticket progression"""
     status_col = None
     for c in df.columns:
