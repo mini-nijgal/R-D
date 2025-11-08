@@ -16,8 +16,13 @@ except ImportError:
 
 
 def _fig_to_base64_png(fig) -> str:
-    png = fig.to_image(format="png", scale=2)
-    return base64.b64encode(png).decode("ascii")
+    if not PLOTLY_AVAILABLE or fig is None:
+        return ""
+    try:
+        png = fig.to_image(format="png", scale=2)
+        return base64.b64encode(png).decode("ascii")
+    except Exception:
+        return ""
 
 
 def _build_kpis(df: pd.DataFrame) -> Tuple[int, int, int, int]:
@@ -33,6 +38,8 @@ def _build_kpis(df: pd.DataFrame) -> Tuple[int, int, int, int]:
 
 
 def _status_chart(df: pd.DataFrame):
+    if not PLOTLY_AVAILABLE:
+        return None
     col = "Status" if "Status" in df.columns else ("status" if "status" in df.columns else None)
     if not col:
         return None
@@ -42,6 +49,8 @@ def _status_chart(df: pd.DataFrame):
 
 
 def _client_chart(df: pd.DataFrame):
+    if not PLOTLY_AVAILABLE:
+        return None
     agg = {}
     for c in df.columns:
         if any(k in c.lower() for k in ["client", "customer", "account", "keyword", "tag"]):
@@ -55,6 +64,8 @@ def _client_chart(df: pd.DataFrame):
 
 
 def _timeline_chart(df: pd.DataFrame):
+    if not PLOTLY_AVAILABLE:
+        return None
     start = next((c for c in df.columns if "start" in c.lower() or c.lower() == "date"), None)
     end = next((c for c in df.columns if "end" in c.lower()), None)
     label = next((c for c in df.columns if c.lower() in ("project", "name", "title")), df.columns[0] if len(df.columns) else None)
@@ -72,6 +83,8 @@ def _timeline_chart(df: pd.DataFrame):
 
 
 def _trend_chart(df: pd.DataFrame):
+    if not PLOTLY_AVAILABLE:
+        return None
     date_col = next((c for c in df.columns if "date" in c.lower() or c.lower() in ("created", "start")), None)
     if not date_col:
         return None
@@ -99,7 +112,8 @@ def generate_report_html(df: pd.DataFrame, title: str = "R&D Tickets Dashboard R
         if fig is None:
             continue
         b64 = _fig_to_base64_png(fig)
-        images.append((name, b64, fig.layout.title.text if fig.layout.title else name))
+        if b64:  # Only add if image was successfully generated
+            images.append((name, b64, fig.layout.title.text if fig.layout.title else name))
 
     table_html = df.to_html(index=False, escape=False)
 

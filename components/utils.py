@@ -218,8 +218,23 @@ def to_csv_bytes(df: pd.DataFrame) -> bytes:
     return buf.getvalue().encode("utf-8")
 
 
+def openpyxl_available() -> bool:
+    """Check if openpyxl is available."""
+    try:
+        import openpyxl  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 def to_excel_bytes(df: pd.DataFrame) -> bytes:
-    from openpyxl import Workbook
+    try:
+        from openpyxl import Workbook
+    except ImportError as e:
+        raise ImportError(
+            "openpyxl is not installed. Please ensure 'openpyxl' is in requirements.txt. "
+            "Install it with: pip install openpyxl"
+        ) from e
 
     wb = Workbook()
     ws = wb.active

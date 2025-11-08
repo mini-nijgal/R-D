@@ -171,12 +171,15 @@ def main() -> None:
             mime="text/csv",
         )
     with exp_c2:
-        st.download_button(
-            "Download Excel",
-            data=utils.to_excel_bytes(filtered),
-            file_name=f"rnd-dashboard-{utils.now_ts().replace(' ', '_').replace(':','-')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+        if utils.openpyxl_available():
+            st.download_button(
+                "Download Excel",
+                data=utils.to_excel_bytes(filtered),
+                file_name=f"rnd-dashboard-{utils.now_ts().replace(' ', '_').replace(':','-')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        else:
+            st.error("⚠️ Excel export unavailable. openpyxl is not installed. Please ensure 'openpyxl' is in requirements.txt.")
     with exp_c3:
         html_bytes = generate_report_html(filtered)
         st.download_button(
