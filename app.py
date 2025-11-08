@@ -68,16 +68,26 @@ def kpi_area(df: pd.DataFrame) -> None:
 
 
 def main() -> None:
+    # Page setup must happen first
     try:
         page_setup()
     except Exception as e:
-        st.error(f"Page setup error: {e}")
+        st.error(f"⚠️ Page setup error: {e}")
+        import traceback
+        st.code(traceback.format_exc())
         st.stop()
     
+    # Authentication check - this will show login screen if not authenticated
+    # and stop execution there, so nothing below runs until authenticated
     try:
         require_auth()
     except Exception as e:
-        st.error(f"Authentication error: {e}")
+        st.error(f"⚠️ Authentication error: {e}")
+        import traceback
+        st.code(traceback.format_exc())
+        # Still show login form even if there's an error
+        from components.authentication import login_view
+        login_view()
         st.stop()
     
     # Logo in sidebar above logout - big and looping GIF
