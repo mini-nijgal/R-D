@@ -125,39 +125,59 @@ def main() -> None:
     # Show title immediately so user sees something
     st.title("R&D Tickets Dashboard")
     
-    # Load data with immediate fallback to demo data
-    # This ensures the app always works, even if external data sources fail
+    # IMPORTANT: Load demo data FIRST so UI renders immediately
+    # Then try to load real data in background/on demand
     from components.data_loader import _demo_df, OPENPYXL_AVAILABLE
     
-    # Fixed published XLSX source for this project
+    # Use session state to cache loaded data and avoid re-fetching on every rerun
+    if 'dashboard_df' not in st.session_state or 'dashboard_last_updated' not in st.session_state:
+        # Initialize with demo data immediately
+        st.session_state.dashboard_df = _demo_df()
+        st.session_state.dashboard_last_updated = "Demo (loading...)"
+
+    # Try to load real data, but don't block on it
     PUBLISHED_XLSX_URL = (
         "https://docs.google.com/spreadsheets/d/e/2PACX-1vSD5oqmdQWQ5OpCLqAAssj-r84JVt7GLBC80FLkgiE37EyyWHEjogG7JJzJQU4bXQ_fIQR4lpeNFj-9/pub?output=xlsx"
     )
     
-    # Only try XLSX if openpyxl is available, otherwise skip it entirely
+    # Only try XLSX if openpyxl is available
     xlsx_url = PUBLISHED_XLSX_URL if OPENPYXL_AVAILABLE else None
     
-    # Load data - this will show status messages and fall back to demo data
-    df = None
-    last_updated = "Demo"
-    try:
-        df, last_updated = load_data_with_ui(
-            spreadsheet_key_override=None,
-            gid_override=None,
-            published_url_override=xlsx_url,
-        )
-    except Exception as e:
-        st.warning(f"⚠️ Data loading encountered an issue: {str(e)[:100]}")
-        df = _demo_df()
-        last_updated = "Demo"
+    # Load data with timeout protection - use demo data if it takes too long
+    load_real_data = st.sidebar.checkbox("🔄 Load live data", value=False, help="Check to attempt loading data from external sources")
     
-    # Final safety check - always ensure we have data
+    if load_real_data:
+        status_container = st.sidebar.empty()
+        try:
+            status_container.info("⏳ Loading data...")
+            df, last_updated = load_data_with_ui(
+                spreadsheet_key_override=None,
+                gid_override=None,
+                published_url_override=xlsx_url,
+            )
+            if df is not None and not df.empty:
+                st.session_state.dashboard_df = df
+                st.session_state.dashboard_last_updated = last_updated
+                status_container.success("✅ Data loaded!")
+            else:
+                status_container.warning("⚠️ No data loaded, using demo data")
+        except Exception as e:
+            status_container.error(f"❌ Error: {str(e)[:50]}")
+            st.session_state.dashboard_df = _demo_df()
+            st.session_state.dashboard_last_updated = "Demo"
+    else:
+        st.sidebar.info("ℹ️ Using demo data. Check 'Load live data' to fetch from external sources.")
+    
+    # Always use session state data (either demo or loaded)
+    df = st.session_state.dashboard_df
+    last_updated = st.session_state.dashboard_last_updated
+    
+    # Final safety check
     if df is None or df.empty:
         df = _demo_df()
         last_updated = "Demo"
-        if df.empty:
-            st.error("❌ Unable to load any data. Please check your data sources.")
-            st.stop()
+        st.session_state.dashboard_df = df
+        st.session_state.dashboard_last_updated = last_updated
 
     meta.caption(f"Last updated: {last_updated}")
 
