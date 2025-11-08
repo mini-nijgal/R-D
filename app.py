@@ -68,8 +68,17 @@ def kpi_area(df: pd.DataFrame) -> None:
 
 
 def main() -> None:
-    page_setup()
-    require_auth()
+    try:
+        page_setup()
+    except Exception as e:
+        st.error(f"Page setup error: {e}")
+        st.stop()
+    
+    try:
+        require_auth()
+    except Exception as e:
+        st.error(f"Authentication error: {e}")
+        st.stop()
     
     # Logo in sidebar above logout - big and looping GIF
     logo_path = "Untitled design.gif"
@@ -113,34 +122,42 @@ def main() -> None:
         clear_data_cache()
         st.rerun()
 
-    # Show title immediately
+    # Show title immediately so user sees something
     st.title("R&D Tickets Dashboard")
+    
+    # Load data with immediate fallback to demo data
+    # This ensures the app always works, even if external data sources fail
+    from components.data_loader import _demo_df, OPENPYXL_AVAILABLE
     
     # Fixed published XLSX source for this project
     PUBLISHED_XLSX_URL = (
         "https://docs.google.com/spreadsheets/d/e/2PACX-1vSD5oqmdQWQ5OpCLqAAssj-r84JVt7GLBC80FLkgiE37EyyWHEjogG7JJzJQU4bXQ_fIQR4lpeNFj-9/pub?output=xlsx"
     )
     
+    # Only try XLSX if openpyxl is available, otherwise skip it entirely
+    xlsx_url = PUBLISHED_XLSX_URL if OPENPYXL_AVAILABLE else None
+    
     # Load data - this will show status messages and fall back to demo data
+    df = None
+    last_updated = "Demo"
     try:
         df, last_updated = load_data_with_ui(
             spreadsheet_key_override=None,
             gid_override=None,
-            published_url_override=PUBLISHED_XLSX_URL,
+            published_url_override=xlsx_url,
         )
     except Exception as e:
-        st.error(f"❌ Error loading data: {e}")
-        from components.data_loader import _demo_df
+        st.warning(f"⚠️ Data loading encountered an issue: {str(e)[:100]}")
         df = _demo_df()
         last_updated = "Demo"
-        st.info("✅ Using demo data. The app is now functional.")
     
-    # Ensure we always have data
+    # Final safety check - always ensure we have data
     if df is None or df.empty:
-        from components.data_loader import _demo_df
         df = _demo_df()
         last_updated = "Demo"
-        st.info("✅ Loaded demo data for display.")
+        if df.empty:
+            st.error("❌ Unable to load any data. Please check your data sources.")
+            st.stop()
 
     meta.caption(f"Last updated: {last_updated}")
 
