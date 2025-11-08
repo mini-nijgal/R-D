@@ -114,10 +114,22 @@ def fetch_sheet(spreadsheet_key: str, gid: Optional[int] = None) -> Tuple[pd.Dat
 
 
 def _load_published_xlsx(published_url: str) -> Tuple[pd.DataFrame, float]:
+    """Load XLSX from published URL. Requires openpyxl."""
+    # Check if openpyxl is available
+    try:
+        import openpyxl  # noqa: F401
+    except ImportError:
+        raise ImportError(
+            "openpyxl is required to read XLSX files. Please install it: pip install openpyxl"
+        )
+    
     resp = requests.get(published_url, timeout=30)
     resp.raise_for_status()
     bio = io.BytesIO(resp.content)
-    df = pd.read_excel(bio)
+    try:
+        df = pd.read_excel(bio, engine='openpyxl')
+    except Exception as e:
+        raise RuntimeError(f"Failed to parse XLSX file: {e}") from e
     return df, time.time()
 
 
@@ -140,33 +152,32 @@ def load_data_with_ui(
             with st.spinner("Fetching published XLSX…"):
                 df, ts = _load_published_xlsx(published_url_override.strip())
             last_updated = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(ts))
-            return df, last_updated
+            if df.empty:
+                st.warning("XLSX file loaded but appears empty. Falling back to other methods.")
+            else:
+                return df, last_updated
+        except ImportError as e:
+            st.warning(f"⚠️ {e} Falling back to other data sources.")
         except Exception as e:
-            st.error(f"Failed to load published XLSX: {e}")
+            st.warning(f"Failed to load published XLSX: {e}. Trying other methods...")
             # continue to other methods as fallback
 
     # Default to your provided sheet key when secrets are absent
     if not key:
         key = "1RbibIdg2iqeoj7Iw0PphfypL7g2eREg4Ee9lgPzkoDU"
         st.caption("Trying public CSV. For reliability, add service account secrets or publish the sheet to the web.")
+    
     try:
         with st.spinner("Fetching Google Sheets data..."):
             df, ts = fetch_sheet(key, gid_override)
         last_updated = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(ts))
         if df.empty:
-            st.info("Sheet loaded but appears empty.")
+            st.info("Sheet loaded but appears empty. Using demo data.")
+            return _demo_df(), "Demo"
         return df, last_updated
     except Exception as e:
-        st.info(f"Using demo data due to load error: {e}")
+        st.info(f"Unable to fetch Google Sheets data: {e}. Using demo data.")
         return _demo_df(), "Demo"
-    try:
-        with st.spinner("Fetching Google Sheets data..."):
-            df, ts = fetch_sheet(key)
-        last_updated = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(ts))
-        return df, last_updated
-    except Exception as e:
-        st.error(f"Failed to load data: {e}")
-        return pd.DataFrame(), ""
 
 
 def clear_data_cache() -> None:

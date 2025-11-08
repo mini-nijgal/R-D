@@ -118,14 +118,24 @@ def main() -> None:
     PUBLISHED_XLSX_URL = (
         "https://docs.google.com/spreadsheets/d/e/2PACX-1vSD5oqmdQWQ5OpCLqAAssj-r84JVt7GLBC80FLkgiE37EyyWHEjogG7JJzJQU4bXQ_fIQR4lpeNFj-9/pub?output=xlsx"
     )
-    df, last_updated = load_data_with_ui(
-        spreadsheet_key_override=None,
-        gid_override=None,
-        published_url_override=PUBLISHED_XLSX_URL,
-    )
+    try:
+        df, last_updated = load_data_with_ui(
+            spreadsheet_key_override=None,
+            gid_override=None,
+            published_url_override=PUBLISHED_XLSX_URL,
+        )
+    except Exception as e:
+        st.error(f"Error loading data: {e}")
+        st.info("Using demo data for now.")
+        from components.data_loader import _demo_df
+        df = _demo_df()
+        last_updated = "Demo"
+    
     if df.empty:
-        st.info("No data to display yet.")
-        return
+        st.warning("No data to display. Using demo data.")
+        from components.data_loader import _demo_df
+        df = _demo_df()
+        last_updated = "Demo"
 
     meta.caption(f"Last updated: {last_updated}")
 

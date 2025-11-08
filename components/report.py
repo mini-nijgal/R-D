@@ -111,9 +111,14 @@ def generate_report_html(df: pd.DataFrame, title: str = "R&D Tickets Dashboard R
     for name, fig in figs:
         if fig is None:
             continue
-        b64 = _fig_to_base64_png(fig)
-        if b64:  # Only add if image was successfully generated
-            images.append((name, b64, fig.layout.title.text if fig.layout.title else name))
+        try:
+            b64 = _fig_to_base64_png(fig)
+            if b64:  # Only add if image was successfully generated
+                title_text = fig.layout.title.text if fig.layout.title and hasattr(fig.layout.title, 'text') else name
+                images.append((name, b64, title_text))
+        except Exception:
+            # Skip images that fail to generate
+            continue
 
     table_html = df.to_html(index=False, escape=False)
 
