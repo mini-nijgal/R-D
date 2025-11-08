@@ -48,7 +48,7 @@ def _get_client():
     return gspread.authorize(creds)  # type: ignore
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=True)
 def fetch_sheet(spreadsheet_key: str, gid: Optional[int] = None) -> Tuple[pd.DataFrame, float]:
     # Try service account first (only if gspread is available)
     if GSPREAD_AVAILABLE:
@@ -81,13 +81,13 @@ def fetch_sheet(spreadsheet_key: str, gid: Optional[int] = None) -> Tuple[pd.Dat
                 gid_val = 0
         # Attempt export endpoint
         export_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_key}/export?format=csv&gid={gid_val}"
-        resp = requests.get(export_url, timeout=20)
+        resp = requests.get(export_url, timeout=5)
         if resp.status_code == 200 and resp.text.strip():
             df = pd.read_csv(io.StringIO(resp.text))
             return df, time.time()
         # Attempt published endpoint (requires File → Share → Publish to web)
         pub_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_key}/pub?output=csv&gid={gid_val}"
-        resp2 = requests.get(pub_url, timeout=20)
+        resp2 = requests.get(pub_url, timeout=5)
         resp2.raise_for_status()
         df = pd.read_csv(io.StringIO(resp2.text))
         return df, time.time()
@@ -113,17 +113,23 @@ def fetch_sheet(spreadsheet_key: str, gid: Optional[int] = None) -> Tuple[pd.Dat
         return _demo_df(), time.time()
 
 
+# Check if openpyxl is available at module level
+try:
+    import openpyxl  # noqa: F401
+    OPENPYXL_AVAILABLE = True
+except ImportError:
+    OPENPYXL_AVAILABLE = False
+
+
 def _load_published_xlsx(published_url: str) -> Tuple[pd.DataFrame, float]:
     """Load XLSX from published URL. Requires openpyxl."""
-    # Check if openpyxl is available
-    try:
-        import openpyxl  # noqa: F401
-    except ImportError:
+    if not OPENPYXL_AVAILABLE:
         raise ImportError(
             "openpyxl is required to read XLSX files. Please install it: pip install openpyxl"
         )
     
-    resp = requests.get(published_url, timeout=30)
+    # Use shorter timeout to fail fast
+    resp = requests.get(published_url, timeout=10)
     resp.raise_for_status()
     bio = io.BytesIO(resp.content)
     try:
@@ -138,6 +144,28 @@ def load_data_with_ui(
     gid_override: Optional[int] = None,
     published_url_override: Optional[str] = None,
 ) -> tuple[pd.DataFrame, str]:
+    # Show something immediately
+    status_placeholder = st.empty()
+    
+    # Skip XLSX if openpyxl is not available - fail fast
+    if published_url_override and published_url_override.strip() and OPENPYXL_AVAILABLE:
+        try:
+            status_placeholder.info("🔄 Fetching published XLSX…")
+            df, ts = _load_published_xlsx(published_url_override.strip())
+            status_placeholder.empty()
+            last_updated = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(ts))
+            if not df.empty:
+                return df, last_updated
+            else:
+                status_placeholder.warning("XLSX file is empty. Trying other sources...")
+        except ImportError:
+            status_placeholder.warning("⚠️ openpyxl not installed. Skipping XLSX. Trying other sources...")
+        except Exception as e:
+            status_placeholder.warning(f"Failed to load XLSX: {str(e)[:100]}. Trying other sources...")
+    elif published_url_override and published_url_override.strip() and not OPENPYXL_AVAILABLE:
+        status_placeholder.warning("⚠️ openpyxl not installed. Cannot load XLSX. Using other sources...")
+
+    # Get spreadsheet key
     key = None
     if spreadsheet_key_override:
         key = spreadsheet_key_override
@@ -146,37 +174,24 @@ def load_data_with_ui(
             key = st.secrets["sheets"]["spreadsheet_key"]  # type: ignore[index]
         except Exception:
             key = None
-    # If user provided a published XLSX URL, try that first
-    if published_url_override and published_url_override.strip():
-        try:
-            with st.spinner("Fetching published XLSX…"):
-                df, ts = _load_published_xlsx(published_url_override.strip())
-            last_updated = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(ts))
-            if df.empty:
-                st.warning("XLSX file loaded but appears empty. Falling back to other methods.")
-            else:
-                return df, last_updated
-        except ImportError as e:
-            st.warning(f"⚠️ {e} Falling back to other data sources.")
-        except Exception as e:
-            st.warning(f"Failed to load published XLSX: {e}. Trying other methods...")
-            # continue to other methods as fallback
-
+    
     # Default to your provided sheet key when secrets are absent
     if not key:
         key = "1RbibIdg2iqeoj7Iw0PphfypL7g2eREg4Ee9lgPzkoDU"
-        st.caption("Trying public CSV. For reliability, add service account secrets or publish the sheet to the web.")
     
+    # Try Google Sheets with shorter timeout
     try:
-        with st.spinner("Fetching Google Sheets data..."):
-            df, ts = fetch_sheet(key, gid_override)
+        status_placeholder.info("🔄 Fetching Google Sheets data...")
+        df, ts = fetch_sheet(key, gid_override)
+        status_placeholder.empty()
         last_updated = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(ts))
-        if df.empty:
-            st.info("Sheet loaded but appears empty. Using demo data.")
+        if not df.empty:
+            return df, last_updated
+        else:
+            status_placeholder.info("Sheet is empty. Using demo data.")
             return _demo_df(), "Demo"
-        return df, last_updated
     except Exception as e:
-        st.info(f"Unable to fetch Google Sheets data: {e}. Using demo data.")
+        status_placeholder.info(f"Using demo data. (Sheet fetch failed: {str(e)[:50]})")
         return _demo_df(), "Demo"
 
 
