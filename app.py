@@ -131,6 +131,20 @@ def main() -> None:
     if st.sidebar.button("🔁 Refresh Data"):
         clear_data_cache()
         st.rerun()
+    
+    # Diagnostic info (can be removed later)
+    with st.sidebar.expander("🔧 Diagnostics", expanded=False):
+        import sys
+        st.code(f"Python: {sys.version}")
+        try:
+            import pkg_resources
+            installed = [d.project_name for d in pkg_resources.working_set]
+            plotly_installed = any('plotly' in pkg.lower() for pkg in installed)
+            openpyxl_installed = any('openpyxl' in pkg.lower() for pkg in installed)
+            st.write(f"plotly installed: {plotly_installed}")
+            st.write(f"openpyxl installed: {openpyxl_installed}")
+        except Exception as e:
+            st.write(f"Error checking packages: {e}")
 
     # Show title immediately so user sees something
     st.title("R&D Tickets Dashboard")
@@ -264,5 +278,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
