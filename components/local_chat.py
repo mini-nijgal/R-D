@@ -43,12 +43,17 @@ def analyze_data_for_chat(df: pd.DataFrame, question: str) -> str:
                 return f"There are **{completed}** completed tickets."
         elif "pending" in q_lower:
             if status_col:
-                pending = df[status_col].astype(str).str.lower().isin(["pending", "backlog", "todo", "paused", "blocked"]).sum()
+                pending = df[status_col].astype(str).str.lower().isin(["pending", "backlog", "paused", "blocked"]).sum()
                 return f"There are **{pending}** pending tickets."
         elif "active" in q_lower:
             if status_col:
-                active = df[status_col].astype(str).str.lower().isin(["active", "ongoing"]).sum()
-                return f"There are **{active}** active tickets."
+                # Active Tickets: "To do", "In Progress", and "Reopened"
+                todo_statuses = ["to do", "todo", "to-do"]
+                in_progress_statuses = ["in progress", "in-progress", "inprogress"]
+                reopened_statuses = ["reopened", "re-open", "reopen", "re opened"]
+                active_statuses = todo_statuses + in_progress_statuses + reopened_statuses
+                active = df[status_col].astype(str).str.lower().isin(active_statuses).sum()
+                return f"There are **{active}** active tickets (To do, In Progress, and Reopened)."
         elif "blocked" in q_lower:
             if status_col:
                 blocked = df[status_col].astype(str).str.lower().isin(["blocked"]).sum()
@@ -100,13 +105,18 @@ def analyze_data_for_chat(df: pd.DataFrame, question: str) -> str:
     elif any(word in q_lower for word in ["summary", "overview", "insights"]):
         if status_col:
             status_counts = df[status_col].value_counts()
-            in_progress = df[status_col].astype(str).str.lower().isin(["in progress", "in-progress", "inprogress"]).sum()
+            # Active Tickets: "To do", "In Progress", and "Reopened"
+            todo_statuses = ["to do", "todo", "to-do"]
+            in_progress_statuses = ["in progress", "in-progress", "inprogress"]
+            reopened_statuses = ["reopened", "re-open", "reopen", "re opened"]
+            active_statuses = todo_statuses + in_progress_statuses + reopened_statuses
+            active = df[status_col].astype(str).str.lower().isin(active_statuses).sum()
             completed = df[status_col].astype(str).str.lower().isin(["done", "completed", "closed", "finished"]).sum()
-            pending = df[status_col].astype(str).str.lower().isin(["pending", "backlog", "todo", "paused", "blocked"]).sum()
+            pending = df[status_col].astype(str).str.lower().isin(["pending", "backlog", "paused", "blocked"]).sum()
             
             result = f"**Dashboard Summary:**\n\n"
             result += f"Total tickets: **{total}**\n"
-            result += f"- In Progress: **{in_progress}** ({in_progress/total*100:.1f}%)\n" if total > 0 else ""
+            result += f"- Active: **{active}** ({active/total*100:.1f}%)\n" if total > 0 else ""
             result += f"- Completed: **{completed}** ({completed/total*100:.1f}%)\n" if total > 0 else ""
             result += f"- Pending: **{pending}** ({pending/total*100:.1f}%)\n" if total > 0 else ""
             

@@ -16,12 +16,15 @@ except ImportError:
 
 
 def _fig_to_base64_png(fig) -> str:
+    """Try to convert Plotly figure to PNG base64. Returns empty string if PNG export fails."""
     if not PLOTLY_AVAILABLE or fig is None:
         return ""
     try:
         png = fig.to_image(format="png", scale=2)
         return base64.b64encode(png).decode("ascii")
     except Exception:
+        # PNG export failed (likely Kaleido/Chrome not available)
+        # Return empty string - caller will use HTML fallback
         return ""
 
 
@@ -31,9 +34,14 @@ def _build_kpis(df: pd.DataFrame) -> Tuple[int, int, int, int]:
     active = completed = pending = 0
     if status_col:
         vals = df[status_col].astype(str).str.lower()
-        active = int(vals.isin(["active", "in progress", "in-progress", "ongoing"]).sum())
+        # Active Tickets: "To do", "In Progress", and "Reopened"
+        todo_statuses = ["to do", "todo", "to-do"]
+        in_progress_statuses = ["in progress", "in-progress", "inprogress"]
+        reopened_statuses = ["reopened", "re-open", "reopen", "re opened"]
+        active_statuses = todo_statuses + in_progress_statuses + reopened_statuses
+        active = int(vals.isin(active_statuses).sum())
         completed = int(vals.isin(["done", "completed", "closed", "finished"]).sum())
-        pending = int(vals.isin(["pending", "backlog", "todo", "paused", "blocked"]).sum())
+        pending = int(vals.isin(["pending", "backlog", "paused", "blocked"]).sum())
     return total, active, completed, pending
 
 
@@ -98,6 +106,19 @@ def _trend_chart(df: pd.DataFrame):
     return px.line(counts, x="month", y="count", markers=True, title="Ticket Trend Over Time")
 
 
+def _fig_to_html_div(fig, div_id: str) -> str:
+    """Convert Plotly figure to HTML div (without full HTML wrapper). Works without Chrome/Kaleido."""
+    if not PLOTLY_AVAILABLE or fig is None:
+        return ""
+    try:
+        # Generate just the div and script, without full HTML wrapper
+        # This allows us to include Plotly.js once and reuse it for multiple charts
+        html_div = fig.to_html(include_plotlyjs=False, div_id=div_id, full_html=False)
+        return html_div
+    except Exception:
+        return ""
+
+
 def generate_report_html(df: pd.DataFrame, title: str = "R&D Tickets Dashboard Report") -> bytes:
     total, active, completed, pending = _build_kpis(df)
 
@@ -108,31 +129,81 @@ def generate_report_html(df: pd.DataFrame, title: str = "R&D Tickets Dashboard R
         ("trend", _trend_chart(df)),
     ]
     images = []
-    for name, fig in figs:
+    html_charts = []
+    needs_plotly_js = False
+    
+    for idx, (name, fig) in enumerate(figs):
         if fig is None:
             continue
         try:
+            title_text = fig.layout.title.text if fig.layout.title and hasattr(fig.layout.title, 'text') else name
+            # Try PNG export first (requires Chrome/Kaleido)
             b64 = _fig_to_base64_png(fig)
-            if b64:  # Only add if image was successfully generated
-                title_text = fig.layout.title.text if fig.layout.title and hasattr(fig.layout.title, 'text') else name
+            if b64:
+                # PNG export succeeded
                 images.append((name, b64, title_text))
+            else:
+                # PNG export failed, use HTML fallback (works without Chrome)
+                div_id = f"plotly-chart-{idx}"
+                chart_html = _fig_to_html_div(fig, div_id)
+                if chart_html:
+                    html_charts.append((name, chart_html, title_text))
+                    needs_plotly_js = True
         except Exception:
-            # Skip images that fail to generate
+            # Skip charts that fail to generate
             continue
 
     table_html = df.to_html(index=False, escape=False)
 
+    # Build HTML report
     parts = [
+        "<!DOCTYPE html>",
+        "<html><head>",
+        "<meta charset='UTF-8'>",
+        f"<title>{title}</title>",
+        "<style>",
+        "body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }",
+        "h1 { color: #333; border-bottom: 3px solid #667eea; padding-bottom: 10px; }",
+        "h2 { color: #555; margin-top: 30px; }",
+        "h3 { color: #666; }",
+        "ul { list-style-type: none; padding: 0; }",
+        "li { padding: 5px 0; }",
+        ".chart-container { margin: 20px 0; padding: 15px; background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }",
+        "table { width: 100%; border-collapse: collapse; margin: 20px 0; background: white; }",
+        "th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }",
+        "th { background-color: #667eea; color: white; }",
+        "tr:hover { background-color: #f5f5f5; }",
+        "</style>",
+    ]
+    
+    # Include Plotly.js CDN if we have HTML charts
+    if needs_plotly_js:
+        parts.append('<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>')
+    
+    parts.extend([
+        "</head><body>",
         f"<h1>{title}</h1>",
         "<h2>KPIs</h2>",
         f"<ul><li>Total Tickets: {total}</li><li>Active Tickets: {active}</li><li>Completed Tickets: {completed}</li><li>Pending/In-Progress Tickets: {pending}</li></ul>",
         "<h2>Charts</h2>",
-    ]
+    ])
+    
+    # Add PNG images (static)
     for name, b64, caption in images:
-        parts.append(f"<div><h3>{caption}</h3><img alt='{name}' style='max-width:100%;' src='data:image/png;base64,{b64}'/></div>")
+        parts.append(f"<div class='chart-container'><h3>{caption}</h3><img alt='{name}' style='max-width:100%;' src='data:image/png;base64,{b64}'/></div>")
+    
+    # Add HTML charts (interactive, no Chrome required)
+    for name, chart_html, caption in html_charts:
+        parts.append(f"<div class='chart-container'><h3>{caption}</h3>{chart_html}</div>")
+    
+    # Add message if no charts were generated
+    if not images and not html_charts:
+        parts.append("<p><em>Charts could not be generated. Please ensure data contains the required columns.</em></p>")
+    
     parts += [
         "<h2>Filtered Data</h2>",
-        table_html,
+        f"<div style='overflow-x: auto;'>{table_html}</div>",
+        "</body></html>",
     ]
     html = "\n".join(parts)
     return html.encode("utf-8")

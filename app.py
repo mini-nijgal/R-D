@@ -47,11 +47,18 @@ def kpi_area(df: pd.DataFrame) -> None:
         vals = df[status_col].astype(str).str.strip()
         vals_lower = vals.str.lower()
         
-        # Check case-insensitive patterns
-        active_count = int(vals_lower.isin(["active", "ongoing"]).sum())
-        in_progress_count = int(vals_lower.isin(["in progress", "in-progress", "inprogress"]).sum())
+        # Active Tickets: "To do", "In Progress", and "Reopened"
+        # Check case-insensitive patterns with various formats
+        todo_statuses = ["to do", "todo", "to-do"]
+        in_progress_statuses = ["in progress", "in-progress", "inprogress"]
+        reopened_statuses = ["reopened", "re-open", "reopen", "re opened"]
+        active_statuses = todo_statuses + in_progress_statuses + reopened_statuses
+        active_count = int(vals_lower.isin(active_statuses).sum())
+        
+        # Keep separate counts for other metrics
+        in_progress_count = int(vals_lower.isin(in_progress_statuses).sum())
         completed_count = int(vals_lower.isin(["done", "completed", "closed", "finished"]).sum())
-        pending_count = int(vals_lower.isin(["pending", "backlog", "todo", "paused", "blocked"]).sum())
+        pending_count = int(vals_lower.isin(["pending", "backlog", "paused", "blocked"]).sum())
     
     pending_in_progress = pending_count + in_progress_count
 

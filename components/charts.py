@@ -26,13 +26,17 @@ def _check_plotly() -> bool:
 
 
 def _download_button_for_figure(fig: go.Figure, filename: str, label: str = "Download PNG") -> None:
+    """Download button for Plotly figures. Silently fails if PNG export is unavailable."""
     if not PLOTLY_AVAILABLE:
         return
     try:
         png = fig.to_image(format="png", scale=2)
         st.download_button(label, data=png, file_name=filename, mime="image/png")
-    except Exception as e:
-        st.caption(f"PNG export unavailable: {e}")
+    except Exception:
+        # PNG export unavailable (Chrome/Kaleido not installed)
+        # Silently skip - don't show error to avoid cluttering the UI
+        # Users can still interact with the charts in the browser
+        pass
 
 
 def chart_projects_by_status(df: pd.DataFrame) -> None:
